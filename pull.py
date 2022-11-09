@@ -643,32 +643,39 @@ class YoudaoNotePull(object):
         with open(file_path, 'rb') as f:
             content = f.read().decode('utf-8')
 
+        dst_path = os.path.splitext(file_path)[0] + '_assets'
+
         # 图片
         image_urls = REGEX_IMAGE_URL.findall(content)
         if len(image_urls) > 0:
             print('正在转换有道云笔记「{}」中的有道云图片链接...'.format(file_path))
-        for image_url in image_urls:
-            image_path = self._get_new_image_path(image_url)
+        for i, image_url in enumerate(image_urls):
+            file_basename = os.path.splitext(os.path.basename(file_path))[0] + '_image_' + str(i)
+            image_path = self._get_new_image_path(image_url, dst_path, file_path, file_basename)
             if image_url == image_path:
                 continue
+            image_path = image_path.replace(' ', '%20')
             content = content.replace(image_url, image_path)
 
         # 附件
         attach_name_and_url_list = REGEX_ATTACH.findall(content)
         if len(attach_name_and_url_list) > 0:
             print('正在转换有道云笔记「{}」中的有道云附件链接...'.format(file_path))
-        for attach_name_and_url in attach_name_and_url_list:
+        for i, attach_name_and_url in enumerate(attach_name_and_url_list):
             attach_url = attach_name_and_url[1]
-            attach_path = self._download_ydnote_url(attach_url, attach_name_and_url[0])
+            file_basename = os.path.splitext(os.path.basename(file_path))[0] + '_attach_' + str(i) + '_'
+            attach_path = self._download_ydnote_url(attach_url, attach_name_and_url[0], dst_path=dst_path,
+                                                    note_path=file_path, rel_path=True, file_basename=file_basename)
             if not attach_path:
                 continue
+            attach_path = attach_path.replace(' ', '%20')
             content = content.replace(attach_url, attach_path)
 
         with open(file_path, 'wb') as f:
             f.write(content.encode())
         return
 
-    def _get_new_image_path(self, image_url) -> str:
+    def _get_new_image_path(self, image_url, dst_path, note_path, file_basename) -> str:
         """
         将图片链接转换为新的链接
         :param image_url:
@@ -676,7 +683,8 @@ class YoudaoNotePull(object):
         """
         # 当 smms_secret_token 为空（不上传到 SM.MS），下载到图片到本地
         if not self.smms_secret_token:
-            image_path = self._download_ydnote_url(image_url)
+            image_path = self._download_ydnote_url(image_url, dst_path=dst_path, note_path=note_path, rel_path=True,
+                                                   file_basename=file_basename)
             return image_path or image_url
 
         # smms_secret_token 不为空，上传到 SM.MS
@@ -686,10 +694,11 @@ class YoudaoNotePull(object):
         if not error_msg:
             return new_file_url
         print(error_msg)
-        image_path = self._download_ydnote_url(image_url)
+        image_path = self._download_ydnote_url(image_url, dst_path=dst_path, note_path=note_path, rel_path=True,
+                                               file_basename=file_basename)
         return image_path or image_url
 
-    def _download_ydnote_url(self, url, attach_name=None) -> str:
+    def _download_ydnote_url(self, url, attach_name=None, dst_path=None, note_path=None, rel_path=False, file_basename=None) -> str:
         """
         下载文件到本地，返回本地路径
         :param url:
@@ -722,10 +731,14 @@ class YoudaoNotePull(object):
             content_type_arr = content_type.split('/')
             file_suffix = '.' + content_type_arr[1].replace(';', '') if len(content_type_arr) == 2 else "jpg"
 
-        local_file_dir = os.path.join(self.root_local_dir, file_dirname).replace('\\', '/')
+        if dst_path:
+            local_file_dir = dst_path.replace('\\', '/')
+        else:
+            local_file_dir = os.path.join(self.root_local_dir, file_dirname).replace('\\', '/')
         if not os.path.exists(local_file_dir):
             os.mkdir(local_file_dir)
-        file_basename = os.path.basename(urlparse(url).path)
+        if not file_basename:
+            file_basename = os.path.basename(urlparse(url).path)
         file_name = ''.join([file_basename, file_suffix])
         local_file_path = os.path.join(local_file_dir, file_name).replace('\\', '/')
 
@@ -738,7 +751,8 @@ class YoudaoNotePull(object):
             print(error_msg)
             return ''
 
-        # relative_file_path = self._set_relative_file_path(file_path, file_name, local_file_dir)
+        if rel_path and note_path:
+            local_file_path = self._set_relative_file_path(note_path, file_name, local_file_dir)
         return local_file_path
 
     def _set_relative_file_path(self, file_path, file_name, local_file_dir) -> str:
